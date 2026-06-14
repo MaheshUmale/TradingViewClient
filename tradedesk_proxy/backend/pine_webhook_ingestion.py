@@ -29,11 +29,17 @@ class PineIndicatorPayload(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
+    await connect_to_redis()
+
+async def connect_to_redis():
     try:
         await redis_client.ping()
         logger.info("Connected to Redis successfully.")
     except Exception as e:
         logger.error(f"Redis Connection Failed: {e}")
+        # Retry logic for startup
+        await asyncio.sleep(5)
+        await connect_to_redis()
 
 @app.post("/webhook/pine")
 async def ingest_pine_indicator(payload: PineIndicatorPayload):
@@ -51,7 +57,7 @@ async def ingest_pine_indicator(payload: PineIndicatorPayload):
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Webhook Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @app.websocket("/ws/stream")
 async def websocket_endpoint(websocket: WebSocket):
@@ -62,23 +68,27 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     pubsub = redis_client.pubsub()
 
-    # Subscribe to all tickers and indicators (In production, filter based on client needs)
-    await pubsub.psubscribe(f"{REDIS_TICKER_PREFIX}*", f"{REDIS_INDICATOR_PREFIX}*")
-
-    logger.info("Client connected to broadcast stream.")
-
     try:
-        async for message in pubsub.listen():
-            if message['type'] == 'pmessage':
-                # Forward the Redis message payload directly to the WebSocket client
+        await pubsub.psubscribe(f"{REDIS_TICKER_PREFIX}*", f"{REDIS_INDICATOR_PREFIX}*")
+        logger.info("Client connected to broadcast stream.")
+
+        while True:
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if message and message['type'] == 'pmessage':
                 await websocket.send_text(message['data'])
+            await asyncio.sleep(0.01) # Small sleep to yield to event loop
+
     except WebSocketDisconnect:
         logger.info("Client disconnected from broadcast stream.")
     except Exception as e:
         logger.error(f"WebSocket Streaming Error: {e}")
     finally:
         await pubsub.punsubscribe()
-        await websocket.close()
+        await pubsub.close()
+        try:
+            await websocket.close()
+        except:
+            pass
 
 if __name__ == "__main__":
     import uvicorn

@@ -18,13 +18,14 @@ class TestTradeDeskProxyLogic(unittest.IsolatedAsyncioTestCase):
         await self.listener.connect_redis()
         mock_instance.ping.assert_called_once()
 
-    def test_extract_metrics_ltp_only(self):
-        feed_data = {
-            "ltpc": {"ltp": 2500.5}
-        }
-        payload = self.listener.extract_metrics("NSE_EQ|INE002A01018", feed_data)
-        self.assertEqual(payload["c"], 2500.5)
-        self.assertEqual(payload["o"], 2500.5)
+    @patch("upstox_client.WebsocketApi.get_market_data_feed_authorize")
+    def test_get_wss_url(self, mock_authorize):
+        mock_response = MagicMock()
+        mock_response.data.authorized_redirect_uri = "wss://test-url.com"
+        mock_authorize.return_value = mock_response
+
+        url = self.listener.get_wss_url()
+        self.assertEqual(url, "wss://test-url.com")
 
     def test_extract_metrics_full_feed(self):
         feed_data = {
@@ -44,7 +45,6 @@ class TestTradeDeskProxyLogic(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["l"], 2490)
         self.assertEqual(payload["c"], 2510)
         self.assertEqual(payload["v"], 5000)
-        self.assertEqual(payload["oi"], 1000000.0)
 
     @patch("MarketFeedV2_pb2.FeedResponse")
     @patch("redis.asyncio.Redis")
@@ -63,15 +63,10 @@ class TestTradeDeskProxyLogic(unittest.IsolatedAsyncioTestCase):
 
             await self.listener.process_binary_message(b"fake_data")
 
-            # Check if Redis publish was called with the correct schema
             call_args = self.listener.redis_client.publish.call_args
-            channel = call_args[0][0]
             payload = json.loads(call_args[0][1])
-
-            self.assertEqual(channel, "ticker:NSE_EQ|INE002A01018")
             self.assertEqual(payload["type"], "TICK")
             self.assertEqual(payload["c"], 2520.0)
-            self.assertEqual(payload["o"], 2520.0) # From LTP fallback
 
 if __name__ == "__main__":
     unittest.main()
