@@ -1,56 +1,51 @@
 import { create } from 'zustand';
 
 /**
- * useTradeDeskStore - Optimized Atomic State Manager
- * Handles high-frequency market ticks and indicator updates.
+ * useTradeDeskStore - Enhanced for Dual-Speed Brain Signals
  */
 export const useTradeDeskStore = create((set, get) => ({
-  // Real-time price data matrix { [instrumentKey]: { ltp, oi, volume, timestamp } }
   prices: {},
-
-  // Custom Indicator data { [instrumentKey:indicatorName]: { values, timestamp } }
   indicators: {},
+  brainSignals: [], // Log of latest micro-signals
 
-  // Global connection status
-  connectionStatus: 'DISCONNECTED',
+  // Active Zone Summary
+  activeZone: {
+    coi_pcr: 1.0,
+    vol_pcr: 1.0,
+    current_signal: 'NEUTRAL'
+  },
 
-  /**
-   * updateTick - Called on every WebSocket market feed packet.
-   * Minimizes UI churn by updating only the relevant instrument segment.
-   */
   updateTick: (instrumentKey, data) => set((state) => ({
     prices: {
       ...state.prices,
-      [instrumentKey]: {
-        ...data,
-        lastUpdated: Date.now()
-      }
+      [instrumentKey]: { ...data, lastUpdated: Date.now() }
     }
   })),
 
-  /**
-   * updateIndicator - Called when a Pine Script webhook broadcast is received.
-   */
   updateIndicator: (instrumentKey, name, values) => set((state) => ({
     indicators: {
       ...state.indicators,
-      [`${instrumentKey}:${name}`]: {
-        values,
-        timestamp: Date.now()
-      }
+      [`${instrumentKey}:${name}`]: { values, timestamp: Date.now() }
     }
   })),
 
   /**
-   * setConnectionStatus - Tracks backend proxy availability.
+   * processBrainSignal - Handles high-conviction execution signals
    */
-  setConnectionStatus: (status) => set({ connectionStatus: status }),
+  processBrainSignal: (signalData) => set((state) => ({
+    activeZone: {
+      coi_pcr: signalData.metrics.coi_pcr,
+      vol_pcr: signalData.metrics.vol_pcr,
+      current_signal: signalData.signal
+    },
+    brainSignals: [
+        { ...signalData, id: Date.now() },
+        ...state.brainSignals.slice(0, 49) // Keep last 50
+    ]
+  })),
 
   /**
-   * Selector: Get LTP for a specific instrument
+   * Selector for Chart: Get real-time PCR for overlay
    */
-  getLTP: (instrumentKey) => {
-    const priceData = get().prices[instrumentKey];
-    return priceData ? priceData.ltp : null;
-  }
+  getPCR: () => get().activeZone.coi_pcr
 }));

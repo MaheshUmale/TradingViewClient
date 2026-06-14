@@ -10,13 +10,13 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="TradeDesk Proxy Gateway")
+app = FastAPI(title="TradeDesk Proxy Gateway & Brain Relay")
 
 # Constants
 REDIS_HOST = "localhost"
 REDIS_PORT = 6379
-REDIS_TICKER_PREFIX = "ticker:"
-REDIS_INDICATOR_PREFIX = "indicator:"
+BRAIN_SIGNAL_CHANNEL = "pubsub:live_ui_state"
+TICKER_CHANNEL_PREFIX = "ticker:"
 
 # Redis Client Instance
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
@@ -29,21 +29,15 @@ class PineIndicatorPayload(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    await connect_to_redis()
-
-async def connect_to_redis():
     try:
         await redis_client.ping()
-        logger.info("Connected to Redis successfully.")
+        logger.info("Gateway connected to Redis.")
     except Exception as e:
         logger.error(f"Redis Connection Failed: {e}")
-        # Retry logic for startup
-        await asyncio.sleep(5)
-        await connect_to_redis()
 
 @app.post("/webhook/pine")
 async def ingest_pine_indicator(payload: PineIndicatorPayload):
-    """Ingests TradingView Pine Script alerts and fanned out via Redis."""
+    """Ingests TradingView Pine Script alerts and relays them."""
     try:
         broadcast_data = {
             "type": "PINE_INDICATOR",
@@ -52,8 +46,8 @@ async def ingest_pine_indicator(payload: PineIndicatorPayload):
             "name": payload.indicator_name,
             "values": payload.values
         }
-        channel = f"{REDIS_INDICATOR_PREFIX}{payload.ticker}"
-        await redis_client.publish(channel, json.dumps(broadcast_data))
+        # Relay through brain's signal channel for unified frontend stream
+        await redis_client.publish(BRAIN_SIGNAL_CHANNEL, json.dumps(broadcast_data))
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Webhook Error: {e}")
@@ -62,28 +56,29 @@ async def ingest_pine_indicator(payload: PineIndicatorPayload):
 @app.websocket("/ws/stream")
 async def websocket_endpoint(websocket: WebSocket):
     """
-    WebSocket endpoint that subscribes to Redis channels and
-    streams data to the frontend in real-time.
+    WebSocket endpoint that relays live brain signals and
+    indicator updates to the frontend.
     """
     await websocket.accept()
     pubsub = redis_client.pubsub()
 
     try:
-        await pubsub.psubscribe(f"{REDIS_TICKER_PREFIX}*", f"{REDIS_INDICATOR_PREFIX}*")
-        logger.info("Client connected to broadcast stream.")
+        # Subscribe to Brain Signals, Indicators, and Tickers
+        await pubsub.subscribe(BRAIN_SIGNAL_CHANNEL)
+        # In production, optionally psubscribe to ticker:* for raw data
 
-        while True:
-            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if message and message['type'] == 'pmessage':
+        logger.info("Client connected to TradeDesk Live Stream.")
+
+        async for message in pubsub.listen():
+            if message['type'] == 'message':
                 await websocket.send_text(message['data'])
-            await asyncio.sleep(0.01) # Small sleep to yield to event loop
 
     except WebSocketDisconnect:
-        logger.info("Client disconnected from broadcast stream.")
+        logger.info("Client disconnected.")
     except Exception as e:
-        logger.error(f"WebSocket Streaming Error: {e}")
+        logger.error(f"WebSocket Relay Error: {e}")
     finally:
-        await pubsub.punsubscribe()
+        await pubsub.unsubscribe()
         await pubsub.close()
         try:
             await websocket.close()
