@@ -1,0 +1,300 @@
+# TradingView Data Sync and Backup Configuration File
+
+# ==================== Data Sync Configuration ====================
+sync_config:
+  # Base sync config
+  sync_interval: 300                    # Periodic sync interval (seconds) - 5 minutes
+  batch_size: 100                       # Batch size for processing
+  max_concurrent_tasks: 5               # Maximum concurrent sync tasks
+
+  # Retry configuration
+  max_retries: 3                        # Maximum number of retries
+  retry_delay_base: 2                   # Base for exponential backoff delay
+  timeout_seconds: 30                   # Timeout for a single task
+
+  # Performance optimization
+  enable_compression: true              # Enable data compression
+  connection_pool_size: 10              # Size of the connection pool
+  keep_alive_timeout: 60               # Connection keep-alive timeout
+
+  # Sync priority configuration
+  priority_symbols:                     # High priority trading symbols
+    - "BINANCE:BTCUSDT"
+    - "BINANCE:ETHUSDT"
+    - "BINANCE:ADAUSDT"
+    - "FX:EURUSD"
+    - "NASDAQ:AAPL"
+
+  priority_timeframes:                  # High priority timeframes
+    - "1"      # 1 minute
+    - "5"      # 5 minutes
+    - "15"     # 15 minutes
+    - "60"     # 1 hour
+
+# ==================== Data Backup Configuration ====================
+backup_config:
+  # Base backup configuration
+  backup_dir: "data/backups"            # Directory for backup storage
+  max_backup_files: 30                  # Maximum number of backup files to keep
+  compression_enabled: true             # Enable backup compression
+  compression_level: 6                  # Compression level (1-9)
+
+  # Backup storage configuration
+  storage_backends:
+    local:
+      enabled: true
+      path: "data/backups/local"
+
+    remote:
+      enabled: false                    # Remote backup (optional)
+      type: "s3"                       # s3/ftp/sftp
+      endpoint: ""
+      access_key: ""
+      secret_key: ""
+      bucket: "tradingview-backups"
+
+    network:
+      enabled: false                    # Network storage (optional)
+      type: "nfs"                      # nfs/smb
+      mount_point: "/mnt/backup"
+
+  # Backup retention policy
+  retention_policy:
+    daily_backups: 7                    # Retain daily backups for 7 days
+    weekly_backups: 4                   # Retain weekly backups for 4 weeks
+    monthly_backups: 12                 # Retain monthly backups for 12 months
+    yearly_backups: 3                   # Retain yearly backups for 3 years
+
+  # Backup verification configuration
+  verification:
+    enable_checksum: true               # Enable checksum verification
+    checksum_algorithm: "sha256"        # Checksum algorithm
+    enable_integrity_check: true       # Enable data integrity check
+    verify_after_backup: true          # Verify immediately after backup completion
+
+# ==================== Scheduled Tasks Configuration ====================
+schedule_config:
+  enabled: true                         # Enable scheduled tasks
+  timezone: "Asia/Shanghai"             # Timezone setting
+
+  # Backup schedules
+  backup_schedules:
+    # Full backup - Daily at 2:00 AM
+    full_backup:
+      enabled: true
+      cron: "0 2 * * *"                # Cron expression
+      symbols: ["*"]                    # All symbols
+      timeframes: ["*"]                 # All timeframes
+      retention_days: 7                 # Retention period in days
+
+    # Incremental backup - Every 30 minutes
+    incremental_backup:
+      enabled: true
+      cron: "*/30 * * * *"
+      symbols: ["priority"]             # Priority symbols only
+      timeframes: ["1", "5", "15", "60"]
+      retention_days: 2
+
+    # Snapshot backup - Daily at 6:00, 12:00, 18:00
+    snapshot_backup:
+      enabled: true
+      cron: "0 6,12,18 * * *"
+      symbols: ["BINANCE:BTCUSDT", "BINANCE:ETHUSDT"]
+      timeframes: ["15", "60"]
+      retention_days: 1
+
+  # Sync schedules
+  sync_schedules:
+    # Primary data source to cache sync - Every 5 minutes
+    primary_to_cache:
+      enabled: true
+      cron: "*/5 * * * *"
+      source: "primary"
+      target: "cache"
+      symbols: ["priority"]
+      timeframes: ["1", "5", "15"]
+
+    # Cache to backup sync - Every hour
+    cache_to_backup:
+      enabled: true
+      cron: "0 * * * *"
+      source: "cache"
+      target: "backup"
+      symbols: ["*"]
+      timeframes: ["*"]
+
+    # Quality check sync - Every 15 minutes
+    quality_check_sync:
+      enabled: true
+      cron: "*/15 * * * *"
+      source: "cache"
+      target: "quality_db"
+      min_quality_score: 0.8
+
+# ==================== Monitoring and Alert Configuration ====================
+monitoring_config:
+  # Base monitoring
+  enabled: true
+  metrics_port: 9090                    # Prometheus metrics port
+  health_check_interval: 60             # Health check interval (seconds)
+
+  # Performance monitoring
+  performance_metrics:
+    sync_speed_threshold: 100           # Sync speed threshold (records/sec)
+    backup_time_threshold: 300          # Backup time threshold (seconds)
+    cache_hit_rate_threshold: 0.8       # Cache hit rate threshold
+    disk_usage_threshold: 0.85          # Disk usage threshold
+
+  # Alert configuration
+  alerts:
+    enabled: true
+    channels:
+      log:
+        enabled: true
+        level: "WARNING"                # Log level for alerts
+
+      email:
+        enabled: false                  # Email alerts
+        smtp_server: "smtp.example.com"
+        smtp_port: 587
+        username: ""
+        password: ""
+        recipients: []
+
+      webhook:
+        enabled: false                  # Webhook alerts (e.g., Slack)
+        url: "https://hooks.slack.com/..."
+        timeout: 10
+
+      prometheus:
+        enabled: true                   # Prometheus metrics exporter
+        job_name: "tradingview_sync_backup"
+        instance: "localhost:9090"
+
+  # Alert rules
+  alert_rules:
+    sync_failure:
+      condition: "sync_failure_rate > 0.1"
+      severity: "critical"
+      message: "Sync failure rate too high"
+
+    backup_failure:
+      condition: "backup_failure_count > 0"
+      severity: "error"
+      message: "Backup task failed"
+
+    disk_full:
+      condition: "disk_usage > 0.9"
+      severity: "warning"
+      message: "Insufficient disk space"
+
+    quality_degradation:
+      condition: "avg_quality_score < 0.8"
+      severity: "warning"
+      message: "Data quality degradation detected"
+
+# ==================== Data Quality Configuration ====================
+quality_config:
+  # Quality assessment thresholds
+  thresholds:
+    min_completeness: 0.95              # Minimum completeness
+    min_accuracy: 0.90                  # Minimum accuracy
+    min_consistency: 0.85               # Minimum consistency
+    min_timeliness: 0.90                # Minimum timeliness
+    min_validity: 0.95                  # Minimum validity
+    min_uniqueness: 0.99                # Minimum uniqueness
+
+  # Quality weights for scoring
+  weights:
+    completeness: 0.25
+    accuracy: 0.25
+    consistency: 0.20
+    timeliness: 0.15
+    validity: 0.10
+    uniqueness: 0.05
+
+  # Data cleaning configuration
+  cleaning:
+    enabled: true
+    auto_fix_price_logic: true          # Automatically fix price logic errors
+    remove_duplicate_timestamps: true   # Remove duplicate timestamps
+    interpolate_missing_values: false   # Interpolate missing values
+    outlier_detection: true             # Enable outlier detection
+    outlier_threshold: 3.0              # Outlier threshold (standard deviations)
+
+# ==================== Security Configuration ====================
+security_config:
+  # Access control
+  authentication:
+    enabled: false                      # Enable authentication
+    method: "basic"                     # basic/jwt/oauth
+    username: "admin"
+    password: "changeme"
+
+  # Data encryption
+  encryption:
+    enabled: false                      # Enable data encryption
+    algorithm: "AES-256-GCM"           # Encryption algorithm
+    key_rotation_days: 90              # Key rotation interval in days
+
+  # Audit logging
+  audit:
+    enabled: true                       # Enable auditing
+    log_file: "logs/audit.log"         # Audit log file path
+    retention_days: 90                 # Retention period for audit logs
+
+    # Audit events to track
+    events:
+      - "backup_create"
+      - "backup_restore"
+      - "sync_start"
+      - "sync_complete"
+      - "config_change"
+      - "system_start"
+      - "system_stop"
+
+# ==================== Advanced Configuration ====================
+advanced_config:
+  # Data sharding configuration
+  sharding:
+    enabled: false                      # Enable sharding
+    shard_size_mb: 100                 # Shard size (MB)
+    shard_key: "symbol_timeframe"      # Shard key
+
+  # Data compression configuration
+  compression:
+    algorithm: "lz4"                   # Compression algorithm: lz4/gzip/zstd
+    level: 3                           # Compression level
+    threshold_kb: 10                   # Minimum size for compression (KB)
+
+  # Cache optimization
+  cache_optimization:
+    enable_prefetch: true              # Enable data prefetching
+    prefetch_window_hours: 24          # Prefetch time window
+    enable_adaptive_ttl: true          # Enable adaptive TTL
+    min_ttl_minutes: 30                # Minimum TTL
+    max_ttl_hours: 24                  # Maximum TTL
+
+  # Concurrency control
+  concurrency:
+    max_sync_workers: 10               # Maximum sync worker threads
+    max_backup_workers: 3              # Maximum backup worker threads
+    rate_limit_per_second: 100         # Rate limit (requests/sec)
+    connection_timeout: 30             # Connection timeout (seconds)
+
+# ==================== Development and Debug Configuration ====================
+debug_config:
+  # Debug mode
+  debug_mode: false                     # Enable debug mode
+  verbose_logging: false               # Enable verbose logging
+  profile_performance: false           # Profile system performance
+
+  # Test configuration
+  test_mode: false                     # Enable test mode
+  mock_data: false                     # Use mock data instead of real data
+  dry_run: false                       # Perform dry run without making changes
+
+  # Development tools
+  enable_debug_api: false              # Enable debug API endpoints
+  debug_api_port: 8080                 # Debug API port
+  enable_metrics_dashboard: false      # Enable internal metrics dashboard
